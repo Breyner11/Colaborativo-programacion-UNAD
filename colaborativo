@@ -164,6 +164,22 @@ class AlquilerEquipo (Servicio):
             if kwargs.get("seguro", False):
                 costo *= 1.1
             return costo
+
         def describir(self) -> str:
             return f"Alquiler de {self.equipo} - ${self._precio_base}/hora"
+
+class AsesoriaEspecializada(Servicio):
+    def __init__(self, id_servicio: str, especialista: str):
+        super().__init__(id_servicio, "Asesoría Especializada", 120000)
+        self.especialista = especialista
+
+    def calcular_costo(self, duracion: float, **kwargs) -> float:
+        costo = self._precio_base * duracion
+        # Sobrecarga simulada con parámetro opcional
+        if kwargs.get("compleja", False):
+            costo *= 1.25
+        return costo
+
+    def describir(self) -> str:
+        return f"Asesoría con {self.especialista} - ${self._precio_base}/hora"
     
