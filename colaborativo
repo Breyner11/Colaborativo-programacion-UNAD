@@ -1,5 +1,169 @@
-import datatime
-import traceback 
+import datetime
+import traceback
+import logging
+from logging import Logger
+from clases.servicio import Servicio
 from abc import ABC,abstractmenthod
-from typing import List, Optional, Dict, Any 
+from typing import List, Optional, Dict, Any
 
+class SoftwareFJError(Exception):
+    """Excepción base para el sistema Software FJ"""
+    def __init__(self, mensaje: str, codigo: str = "ERROR_GENERAL"):
+        self.mensaje = mensaje
+        self.codigo = codigo
+        self.timestamp = datetime.datetime.now()
+        super().__init__(self.mensaje)
+
+class ClienteInvalidoError(SoftwareFJError):
+    def __init__(self, mensaje: str):
+        super().__init__(mensaje, "CLIENTE_INVALIDO")
+
+class ServicioInvalidoError(SoftwareFJError):
+    def __init__(self, mensaje: str):
+        super().__init__(mensaje, "SERVICIO_INVALIDO")
+
+class ReservaInvalidaError(SoftwareFJError):
+    def __init__(self, mensaje: str):
+        super().__init__(mensaje, "RESERVA_INVALIDA")
+
+class OperacionNoPermitidaError(SoftwareFJError):
+    def __init__(self, mensaje: str):
+        super().__init__(mensaje, "OPERACION_NO_PERMITIDA")
+
+# ==================== LOGGIN ====================
+class logger:
+    """Gestor de logs simple con archivo"""
+    LOG_FILEc = "software_fj_logs.txt"
+
+    @staticmethod
+    def log_event (evento: str, nivel:str = "INFO"):
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        linea = f"[{timestamp}][{nivel}]{evento}\n"
+        try:
+            with open(Logger.LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(linea)
+        except Exception as e:
+            print(f"CRITICO: No se puede escribir en log:{e}")
+
+    @staticmethod
+    def log_error(error: Exception, contexto: str = ""):
+        mensaje = f"{mensaje} | Código: {error.codigo}"
+        Logger.log_event(mensaje, "ERROR")
+        # Opcional: guardar traceback
+try:
+    with open(Logger.LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(traceback.format_exc()+ "\n")
+except:
+    pass
+
+# ==================== CLASE ABSTRACTA BASE ====================
+class EntidadSistema (ABC):
+    """Clase abstracta base para entidades del sistema"""
+    def __init__ (self, id_entidad:str):
+        if not id_entidad or not isinstance(id_entidad, str):
+            raise ValueError("ID de entidad requerido y debe ser string")
+        self._id = id_entidad
+        self._fecha_creacion = datetime.datetime.now()
+
+    @property
+    def id(self)-> str:
+        return self._id
+
+    @abstractmenthod
+    def obtener_info(self) -> Dict[str, Any]:
+        pass
+
+# ===================== CLIENTE ====================
+class Cliente(EntidadSistema):
+    def __init__(self, id_cliente: str, nombre: str, email: str, telefono: str):
+        super().__init__(id_cliente)
+        self.validar_datos(nombre, email, telefono)
+        self._nombre = nombre.strip ()
+        self._email = email.strip(). lower()
+        self._telefono = telefono.strip()
+        self._reservas_activas: List['Reserva'] =[]
+
+    def _validar_datos(self, nombre: str, email: str, telefono: str):
+        if not nombre or len(nombre.strip()) < 3:
+            raise ClienteInvalidoError("Nombre debe tener al menos 3 caracteres")
+        if "@" not in email or "." not in email:
+            raise ClienteInvalidoError("Email inválido")
+        if not telefono or len(telefono.strip()) < 7:
+            raise ClienteInvalidoError("Telefono invalido")
+
+    # Encapsulación
+    @property
+    def nombre(self)-> str:
+        return self._email
+
+    @property
+    def email (self) -> str:
+        return self._email
+
+    def agregar_reserva(self, reserva:'Reserva'):
+        self._reservas_activas.append(reserva)
+
+    def obtener_info(self) -> Dict[str, Any]:
+        return{
+            "id": self.id,
+            "nombre": self._nombre,
+            "email": self.email,
+            "telefono": self._telefono,
+            "reservas_activas": len(self._reservas_activas)
+    }
+
+# ===================== SERVICIOS (Abstracto + polimorfismo) ====================
+class Servicio (EntidadSistema, ABC):
+    def __init__(self, id_servicio: str,nombre: str, precio_base: float):
+        super().__init__(id_servicio)
+        if precio_base <= 0:
+            raise ServicioInvalidoError("Precio base debe ser mayor a 0")
+        self._nombre = nombre
+        self._precio_base = precio_base
+
+    @abstractmenthod
+    def calcular_costo(self, duracion: float, **kwargs) -> float:
+        """Método polimorfismo para calcular costo"""
+        pass
+
+    @abstractmenthod
+    def describir(self) ->str:
+        pass
+
+    def obtener_info(self) -> Dict[str, any]:
+        return{
+            "id": self.id,
+            "nombre": self._nombre,
+            "precio_base": self._precio_base
+
+        }
+class ReservaSala(Servicio):
+    def __init__(self, id_servicio:str, capacidad: int):
+        super().__init__(id_servicio, "Reserva debe ser positiva")
+        self.capacidad = capacidad
+
+    def calcular_costo(self, duracion: float, **kwargs) -> float:
+        """Sobrescrito con polimorfismo"""
+        if duracion <= 0:
+            raise ValueError("Duracion debe ser positiva")
+        costo = self._precio_base * duracion
+        if kwargs.get("proyector", False):
+            costo += 15000
+        return costo
+    
+    def describir(self) -> str:
+        return f"Reserva de sala (caapacidad{self.capacidad}personas)-${self._precio_base}/hora"
+    
+class AlquilerEquipo (Servicio):
+        def __init__ (self, id_servicio: str, equipo: str):
+            super().__init__(id_servicio, f"Alquiler {equipo}",80000)
+            self.equipo=equipo
+
+        def calcular_costo(self, duracion: float, **kwargs) -> float:
+            costo = self._precio_base * duracion
+            if kwargs.get("seguro", False):
+                costo *= 1.1
+            return costo
+        def describir(self) -> str:
+            return f"Alquiler de {self.equipo} - ${self._precio_base}/hora"
+    
