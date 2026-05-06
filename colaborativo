@@ -3,7 +3,7 @@ import traceback
 import logging
 from logging import Logger
 from clases.servicio import Servicio
-from abc import ABC,abstractmenthod
+from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 
 class SoftwareFJError(Exception):
@@ -182,4 +182,271 @@ class AsesoriaEspecializada(Servicio):
 
     def describir(self) -> str:
         return f"Asesoría con {self.especialista} - ${self._precio_base}/hora"
+
+#===================== CLASE RESERVA (Lógica Central) ====================
+class Reserva(EntidadSistema):
+    """
+    Integra cliente, servicio, duración y estado. 
+    Implementa el manejo riguroso de excepciones.
+    """
+    def __init__(self, id_reserva: str, cliente: Cliente, servicio: Servicio, duracion: float):
+        super().__init__(id_reserva)
+        self.cliente = cliente
+        self.servicio = servicio
+        self.duracion = duracion
+        self.estado = "PENDIENTE"
+        self.costo_total = 0.0
+
+    def procesar_confirmacion(self, **kwargs):
+        """
+        Método con bloque try/except/else/finally para procesar la reserva.
+        """
+        try:
+            # Validación de negocio: Duración lógica
+            if self.duracion <= 0:
+                raise ReservaInvalidaError(f"Duración inválida ({self.duracion}h). Debe ser mayor a 0.")
+            
+            # Cálculo de costo usando polimorfismo
+            self.costo_total = self.servicio.calcular_costo(self.duracion, **kwargs)
+            self.estado = "CONFIRMADA"
+            
+            # Registro del evento exitoso
+            Logger.log_event(f"Reserva {self.id} procesada para {self.cliente.nombre}.")
+
+        except (ReservaInvalidaError, ServicioInvalidoError) as e:
+            self.estado = "FALLIDA"
+            Logger.log_error(e)
+            print(f" Error de Proceso: {e.mensaje}")
+        
+        except Exception as e:
+            self.estado = "ERROR_SISTEMA"
+            Logger.log_error(e)
+            print(f" Error crítico inesperado: {e}")
+            
+        else:
+            # Solo si no hubo errores
+            print(f" Reserva {self.id} confirmada. Total: ${self.costo_total}")
+            
+        finally:
+            # Siempre se ejecuta
+            print(f"--- Fin de gestión para la reserva {self.id} ---")
+
+    def obtener_info(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "cliente": self.cliente.nombre,
+            "servicio": self.servicio._nombre,
+            "estado": self.estado,
+            "total": self.costo_total
+        }
+
+    print("\n--- CASO 1: Validación de Cliente (Dato Inválido) ---")
+try:
+    # Intentamos crear un cliente con un nombre muy corto y sin correo válido
+    cliente_error = Cliente("C99", "Jo", "correo_falso", "123")
+except ClienteInvalidoError as e:
+    # Capturamos la excepción personalizada que definieron tus compañeros
+    Logger.log_error(e) 
+    print(f"Bloqueado: {e.mensaje}")
+except Exception as e:
+    # Captura cualquier otro error inesperado para que el programa no se cierre
+    Logger.log_error(e)
+    print("Ocurrió un error inesperado al registrar el cliente.")
+print("\n--- CASO 2: Duración Inconsistente (Error de Cálculo) ---")
+try:
+    # Usamos un cliente y servicio que ya existan (puedes usar c1 y s1 si los creaste)
+    # Forzamos el error con una duración de -2 horas
+    reserva_negativa = Reserva("R-ERR", c1, s1, -2) 
+    reserva_negativa.procesar_reserva()
     
+except ReservaInvalidaError as e:
+    # Este error debe dispararse porque la duración es ilógica
+    Logger.log_error(e)
+    print(f"Resultado esperado: {e.mensaje}")
+except Exception as e:
+    Logger.log_error(e)
+    print(f"Error inesperado de tipo: {type(e).__name__}")
+
+print("\n--- CASO 3: Exceso de Capacidad (Servicio No Disponible) ---")
+try:
+    # Creamos una sala pequeña (Capacidad: 5 personas)
+    sala_pequena = ReservaSala("S-PEQ", 5)
+    
+    # Intentamos una reserva para 20 personas (Operación no permitida)
+    # Nota: Asegúrate de que tu lógica en Reserva valide esto
+    personas_a_ingresar = 20
+    
+    if personas_a_ingresar > sala_pequena.capacidad:
+        raise OperacionNoPermitidaError(
+            f"Capacidad excedida. La sala solo permite {sala_pequena.capacidad} personas."
+        )
+
+except OperacionNoPermitidaError as e:
+    # Capturamos el error de "Operación no permitida" que definieron tus compañeros
+    Logger.log_error(e)
+    print(f"Resultado esperado: {e.mensaje}")
+except Exception as e:
+    Logger.log_error(e)
+    print(f"Error detectado: {e}")
+
+print("\n--- CASO 4: Parámetros Faltantes (Error de Ejecución) ---")
+try:
+    # Creamos una asesoría válida
+    asesoria = AsesoriaEspecializada("ASE-01", "Ing. Pérez")
+    
+    # Intentamos calcular el costo pero pasamos 'None' en lugar de un número
+    # Esto simula un error donde el usuario olvida llenar un campo
+    duracion_olvidada = None
+    costo = asesoria.calcular_costo(duracion_olvidada)
+
+except TypeError as e:
+    # Capturamos un error nativo de Python (TypeError) por el parámetro faltante
+    # El sistema debe ser capaz de manejar errores internos también
+    Logger.log_event(f"Error de parámetros: {e}", "CRÍTICO")
+    print(f"Resultado esperado: Se detectó un parámetro faltante o nulo.")
+except Exception as e:
+    Logger.log_error(e)
+    print("Error procesado correctamente.")
+
+print("\n--- CASO 5: Operación No Permitida y Estabilidad ---")
+try:
+    # Simulamos un intento de usar un servicio que es 'None'
+    # Esto cumple con el manejo de "situaciones que comprometan la operación"
+    servicio_fantasma = None
+    
+    if servicio_fantasma is None:
+        raise OperacionNoPermitidaError("Intento de reserva con servicio inexistente.")
+
+except OperacionNoPermitidaError as e:
+    Logger.log_error(e)
+    print(f"Resultado esperado: {e.mensaje}")
+
+finally:
+    # Este bloque SE EJECUTA SIEMPRE, haya error o no
+    # Es la prueba máxima de que la aplicación sigue "activa y estable"
+    print(" Verificación de estabilidad: El sistema Software FJ sigue en ejecución.")
+
+print("\n--- CASO 6: Encadenamiento de Excepciones (Error de Sistema) ---")
+try:
+    try:
+        # Forzamos un error matemático básico (división por cero)
+        # Imagina que es un error en el cálculo de impuestos internos
+        resultado = 100 / 0
+    except ZeroDivisionError as e:
+        # Encadenamos el error matemático con una excepción del negocio
+        raise SoftwareFJError("Error crítico en el motor de cálculos") from e
+
+except SoftwareFJError as e:
+    # Aquí capturamos el error encadenado
+    Logger.log_error(e)
+    print(f"Resultado esperado: {e.mensaje}")
+    print(f"Causa original: {e.__cause__}") # Esto demuestra el encadenamiento
+
+print("\n--- CASO 7: Fecha de Reserva Inválida (Operación No Permitida) ---")
+try:
+    # Simulamos una fecha del año pasado
+    fecha_reserva = datetime.datetime(2023, 5, 10)
+    fecha_actual = datetime.datetime.now()
+    
+    if fecha_reserva < fecha_actual:
+        # Usamos la excepción de tus compañeros para bloquear el proceso
+        raise ReservaInvalidaError(
+            f"No se puede realizar una reserva para una fecha pasada: {fecha_reserva.date()}"
+        )
+
+except ReservaInvalidaError as e:
+    Logger.log_error(e)
+    print(f"Resultado esperado: {e.mensaje}")
+except Exception as e:
+    Logger.log_error(e)
+    print(f"Error detectado: {e}")
+
+print("\n--- CASO 8: Equipo Fuera de Servicio (Servicio No Disponible) ---")
+try:
+    # Creamos un equipo para alquilar
+    laptop = AlquilerEquipo("EQ-001", "Laptop Dell XPS")
+    
+    # Simulamos una bandera o estado de mantenimiento
+    esta_disponible = False 
+    
+    if not esta_disponible:
+        # Usamos una excepción de tus compañeros para indicar que no se puede proceder
+        raise ServicioInvalidoError(
+            f"El servicio '{laptop.equipo}' no está disponible por mantenimiento técnico."
+        )
+
+except ServicioInvalidoError as e:
+    Logger.log_error(e)
+    print(f"Resultado esperado: {e.mensaje}")
+except Exception as e:
+    Logger.log_error(e)
+    print(f"Error detectado: {e}")
+
+print("\n--- CASO 9: Reserva Exitosa (Evento Relevante) ---")
+try:
+    # 1. Creamos los objetos correctamente
+    cliente_ok = Cliente("C-001", "Mar Systems", "mar@unad.edu.co", "3101234567")
+    servicio_ok = AsesoriaEspecializada("ASE-55", "Dra. Montoya")
+    
+    # 2. Simulamos el procesamiento
+    duracion = 3.5 # horas
+    total = servicio_ok.calcular_costo(duracion, compleja=True)
+    
+    # 3. Registramos el éxito
+    if total > 0:
+        Logger.log_event(f"RESERVA EXITOSA: Cliente {cliente_ok.nombre} reservó {servicio_ok.describir()} por ${total}")
+
+except Exception as e:
+    # Este bloque NO debería ejecutarse si todo está bien
+    Logger.log_error(e)
+    print(f"Error inesperado: {e}")
+
+else:
+    # El bloque 'else' se ejecuta solo si NO hubo excepciones
+    print(f" Operación completada: Se ha generado la factura por ${total}")
+
+finally:
+    print(" Finalizando proceso de reserva exitosa.")
+
+print("\n--- CASO 10: Error de Tipo de Dato (Estabilidad Crítica) ---")
+try:
+    # Simulamos que por un error de entrada, la duración llega como un texto
+    # en lugar de un número (por ejemplo, "dos" en vez de 2)
+    duracion_erronea = "dos horas"
+    
+    # Esto provocará un error interno en el método calcular_costo de la clase Servicio
+    # ya que no se puede multiplicar un número por un texto de esa forma.
+    total = servicio_ok.calcular_costo(duracion_erronea)
+
+except TypeError as e:
+    # Capturamos el error técnico de Python
+    Logger.log_error(e)
+    print(f"Resultado esperado: Error de tipo detectado. El sistema evitó un colapso.")
+    print(f"Detalle técnico guardado en log: {e}")
+
+finally:
+    print("\n--- FINAL DE LA SIMULACIÓN DE 10 OPERACIONES ---")
+    print("El archivo 'software_fj_logs.txt' ha sido actualizado con todos los eventos.")
+
+
+
+    Logger.log_event("Ciclo de pruebas completado con éxito.") 
+
+# ===================== SISTEMA PRINCIPAL ====================
+def ejecutar_sistema_fj():
+    """
+    Función principal que orquesta la simulación de 10 operaciones
+    requerida por la Fase 4.
+    """
+    print("="*50)
+    print("SISTEMA DE GESTIÓN SOFTWARE FJ - FASE 4 UNAD")
+    print("="*50)
+    
+    # Aquí puedes meter todos tus 'Casos' dentro de esta función 
+    # o simplemente dejar que se ejecuten secuencialmente como los tienes.
+    
+    print("\n[INFO] Simulación finalizada. Revise 'software_fj_logs.txt' para detalles.")
+
+if __name__ == "__main__":
+    # Este es el punto de entrada oficial del programa en Python
+    ejecutar_sistema_fj()
